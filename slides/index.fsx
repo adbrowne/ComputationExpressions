@@ -1,17 +1,93 @@
 ﻿(**
-- title : FsReveal 
-- description : Introduction to FsReveal
-- author : Karlkim Suwanmongkol
-- theme : Sky
+- title : Lets see what we can do! with F# Computation Expressions 
+- description: not sure where this goes
+- author : Andrew Browne
 - transition : default
 
+****
+### Lets see what we can do! with F# Computation Expressions 
+By Andrew Browne
 ***
+*)
 
-### What is FsReveal?
+(*** hide ***)
+let getWords (document2 : string) = document2.Split(' ') 
 
-- Generates [reveal.js](http://lab.hakim.se/reveal-js/#/) presentation from [markdown](http://daringfireball.net/projects/markdown/)
-- Utilizes [FSharp.Formatting](https://github.com/tpetricek/FSharp.Formatting) for markdown parsing
+type WordStat = 
+  | DocumentLength of int
+  | WordLength of int
 
+(*** define: wordLengths-seq ***)
+let wordLengths document = 
+   seq {
+     for word in getWords document do
+       yield word.Length
+   }
+
+(*** hide ***)
+let getStats documents = 
+   seq {
+      for document in documents do
+        let words = getWords document 
+        yield DocumentLength words.Length
+        for word in words do
+            yield WordLength word.Length
+   }
+
+let downloadUrl (url : string) : Async<string> = 
+  match url with
+  | "rootDoc" ->
+    async { return "root doc" }
+  | "child1" -> 
+    async { return "child1 doc" }
+  | "child2" -> 
+    async { return "child2 doc" }
+  | _ -> 
+    async { return "other doc" }
+
+let getDocumentLinks = function
+  | "rootDoc" -> ["child1"; "child2"] |> Seq.ofList
+  | _ -> Seq.empty
+
+let rec getDocumentLength url =
+    async {
+        let! document = downloadUrl url
+        return getWords document
+    }
+
+let rec getDocuments startUrl : Async<seq<string>> = 
+    async {
+        let! doc = downloadUrl startUrl
+        let links = getDocumentLinks doc
+
+        let! childDocs = 
+          seq {
+            for childUrl in links do 
+                yield getDocuments childUrl
+          }
+          |> Async.Parallel
+
+        return seq {
+            yield doc
+
+            for child in childDocs do
+                yield! child
+        }
+    }
+(**
+****
+### Some word lengths
+*)
+let wordLengths' document =
+    document
+    |> Seq.collect getWords
+    |> Seq.map (fun x -> x.Length)
+(**
+****
+### Some word lengths - using seq
+*)
+(*** include: wordLengths-seq ***)
+(**
 ***
 
 ### Reveal.js
