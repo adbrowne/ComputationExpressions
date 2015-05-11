@@ -12,180 +12,55 @@ By Andrew Browne
 *)
 
 (*** hide ***)
-let getWords (document : string) = document.Split(' ')
+let lookupName (id : int) = Some "Andrew"
+let lookupAge (id : int) = Some 32
 
-type WordStat = 
-  | DocumentLength of int
-  | WordLength of int
+(*** define: maybe-builder ***)
+type MaybeBuilder() = 
+  member this.Return(x) = Some x
 
-(*** hide ***)
-type AsyncWriterState<'T> = AsyncWriterState of (unit -> Async<'T> * string list)
+  member this.Bind(m, f) = Option.bind f m
 
-module AsyncWriterBuilderModule =
-    let runWriter<'T> (AsyncWriterState w) : (Async<'T> * string list) = w()
-    let getValues (f : 'a -> AsyncWriterState<'B>) (a : 'a) : (Async<'B>) =
-      match f a with
-      | AsyncWriterState f ->
-         let (_, r) = f ()
-         r
-    let ignoreAsync (f : 'a -> AsyncWriterState<'B>) (a : 'a) : (string list) =
-      match f a with
-      | AsyncWriterState f -> 
-        let (l, _) = f ()
-        l
+let maybe = MaybeBuilder()
 
-    let bind (b : 'a -> AsyncWriterState<'B>) (c : AsyncWriterState<'A>) : AsyncWriterState<'B> = 
-       let AsyncWriterState (log, a) = c
-       let a' = async.Bind(a, ignoreLog b)
-       let logb = ignoreAsync b a
-       let log' = List.append log logb
-       AsyncWriterState (fun () -> (a',log'))
-
-    // The rest of the operations are boilerplate.
-    // The tryFinally operator.
-    // This is boilerplate in terms of "result", "catch", and "bind".
-    let tryFinally expr compensation =
-        catch (expr)
-        |> bind (fun res -> compensation();
-                            match res with
-                            | Ok value -> result value
-                            | Exception exn -> raise exn)
-
-    let result value = AsyncWriterState(fun () -> (async { return value }, []))
-
-    // The whileLoop operator.
-    // This is boilerplate in terms of "result" and "bind".
-    let rec whileLoop pred body =
-        if pred() then body |> bind (fun _ -> whileLoop pred body)
-        else result ()
-
-    let delay func = AsyncWriterState (fun () -> func())
-
-    // The forLoop operator.
-    // This is boilerplate in terms of "catch", "result", and "bind".
-    let forLoop (collection:seq<_>) func =
-        let ie = collection.GetEnumerator()
-        tryFinally (whileLoop (fun () -> ie.MoveNext())
-                     (delay (fun () -> let value = ie.Current in func value)))
-                     (fun () -> ie.Dispose())
-
-(*** define: wordLengths-seq ***)
-let wordLengths document = 
-   seq {
-     for word in getWords document do
-       yield word.Length
-   }
-
-(*** hide ***)
-let getStats documents = 
-   seq {
-      for document in documents do
-        let words = getWords document 
-        yield DocumentLength words.Length
-        for word in words do
-            yield WordLength word.Length
-   }
-
-let downloadUrl (url : string) : Async<string> = 
-  async { return sprintf "%s content" url }
-
-let getDocumentLinks = function
-  | "rootDoc content" -> ["child1"; "child2"] |> Seq.ofList
-  | _ -> Seq.empty
-
-(**
-***
-### Word Lengths
-*)
-let wordLengths' document =
-    document
-    |> Seq.collect getWords
-    |> Seq.map (fun x -> x.Length)
-(** 
----
-#### seq
-*)
-(*** include: wordLengths-seq ***)
-(**
-***
-### Async 
-*)
-let getDocumentLength url =
-    async {
-        let! document = downloadUrl url
-        return getWords document
-    }
-(**
----
-### myAsync
-*)
-type MyAsyncBuilder() = 
-   member x.Bind(comp, func) 
-     = async.Bind(comp, func)
-   member x.Return(value) 
-     = async.Return(value)
-
-let myAsync = new MyAsyncBuilder()
-
-let getDocumentLength' url =
-  myAsync {
-    let! document = downloadUrl url
-    return getWords document
-  }
-(**
----
-### Desugaring
-*)
-let getDocumentLength'' url =
-  myAsync.Bind(downloadUrl url, fun document ->  
-    myAsync.Return(getWords document))
-
-(*** hide ***)
-type AsyncWriterBuilder() =
-    member x.Bind(comp, func)
-      = AsyncWriterBuilderModule.bind func comp
-    member x.Return(value) 
-      = AsyncWriterBuilderModule.result value
-    member x.For(coll:seq<_>, func) = AsyncWriterBuilderModule.forLoop coll func
-    member x.Zero() = AsyncWriterBuilderModule.result ()
-
-let async = new AsyncWriterBuilder()
-       
-let parseUrl url =
-    async {
-        let! doc = downloadUrl url
-        let links = getDocumentLinks doc
-
-        return (doc, links)
-    }
-(**
-***
-### Crawl documents
-*)
-let rec getDocuments startUrl = async {
-    let! (doc, links) = parseUrl startUrl
-
-    let! childDocs = 
-      seq {
-        for childUrl in links do 
-          yield getDocuments childUrl
-      } |> Async.Parallel
-
-    return seq {
-      yield doc
-      for child in childDocs do
-        yield! child } 
+(*** define: getdetails ***)
+let getCompleteDetails id = maybe {  
+  let! name = lookupName id
+  let! age = lookupAge id
+  return (name, age)
 }
+
+(*** hide ***)
+let completeDetails = getCompleteDetails 1
+
 (**
----
-### What's wrong?
+***
+### Maybe 
 *)
-let countWords = 
-    async {
-       let! docs = getDocuments "rootDoc"
-       for doc in docs do
-         printfn "%A" doc
-    } 
-    |> Async.RunSynchronously
- 
-(*** include-value: countWords ***)
+(*** include: getdetails ***)
+(*** include-value: completeDetails ***)
+
+(**
+***
+### Maybe Desugared
+*)
+
+let getCompleteDetails2 id = 
+   maybe.Bind(lookupName id, (fun name ->
+      maybe.Bind(lookupAge id, (fun age ->
+        maybe.Return((name,age)
+   ))))
+(**
+***
+### Maybe Builder
+*)
+(*** include: maybe-builder ***)
+
+(**
+***
+### Option.bind
+*)
+let bind f input = 
+   match input with 
+   | None -> None 
+   | Some x -> f x
