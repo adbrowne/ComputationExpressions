@@ -12,19 +12,34 @@ By Andrew Browne
 *)
 
 (*** hide ***)
+let getWords (document : string) = document.Split(' ')
+
+type WordStat = 
+  | DocumentLength of int
+  | WordLength of int
+
+(*** hide ***)
 type AsyncWriterState<'T> = AsyncWriterState of (unit -> Async<'T> * string list)
 
 module AsyncWriterBuilderModule =
     let runWriter<'T> (AsyncWriterState w) : (Async<'T> * string list) = w()
-    let ignoreLog (f : 'a -> AsyncWriterState<'B>) (a : 'a) : (Async<'B>) =
+    let getValues (f : 'a -> AsyncWriterState<'B>) (a : 'a) : (Async<'B>) =
       match f a with
-      | AsyncWriterState (_, r) -> r
-        
+      | AsyncWriterState f ->
+         let (_, r) = f ()
+         r
+    let ignoreAsync (f : 'a -> AsyncWriterState<'B>) (a : 'a) : (string list) =
+      match f a with
+      | AsyncWriterState f -> 
+        let (l, _) = f ()
+        l
+
     let bind (b : 'a -> AsyncWriterState<'B>) (c : AsyncWriterState<'A>) : AsyncWriterState<'B> = 
        let AsyncWriterState (log, a) = c
        let a' = async.Bind(a, ignoreLog b)
-       let log' = 
-          List.append
+       let logb = ignoreAsync b a
+       let log' = List.append log logb
+       AsyncWriterState (fun () -> (a',log'))
 
     // The rest of the operations are boilerplate.
     // The tryFinally operator.
@@ -53,12 +68,6 @@ module AsyncWriterBuilderModule =
         tryFinally (whileLoop (fun () -> ie.MoveNext())
                      (delay (fun () -> let value = ie.Current in func value)))
                      (fun () -> ie.Dispose())
-
-let getWords (document : string) = document.Split(' ') 
-
-type WordStat = 
-  | DocumentLength of int
-  | WordLength of int
 
 (*** define: wordLengths-seq ***)
 let wordLengths document = 
