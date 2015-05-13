@@ -1,5 +1,16 @@
 section.much-code > table.pre {
-  color: rgb(245, 245, 220);
-  background-color: rgb(245, 245, 220);
-  zoom: 5%;
+  zoom: 80%;
+}
+section.dsl-functions > table.pre {
+  zoom: 80%;
+}
+section.dsl-interpreter > table.pre {
+  zoom: 60%;
+}
+section.dsl-builder > table.pre {
+  zoom: 60%;
+}
+
+section.dsl-example > table.pre {
+  zoom: 60%;
 }

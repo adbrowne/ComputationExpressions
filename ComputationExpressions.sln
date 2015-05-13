@@ -1,6 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2012
+# Visual Studio 2013
+VisualStudioVersion = 12.0.31101.0
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "ComputationExpressions", "slides\ComputationExpressions.fsproj", "{C4883D7F-3970-4CA8-96F7-F39B20116E2B}"
 EndProject
 Global
