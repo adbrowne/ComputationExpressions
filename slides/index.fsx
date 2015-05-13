@@ -2,7 +2,8 @@
 - title : Lets see what we can do! with F# Computation Expressions 
 - description: not sure where this goes
 - author : Andrew Browne
-- transition : default
+- theme : Solarized
+- transition : none
 
 ***
 
@@ -12,6 +13,7 @@ By Andrew Browne
 *)
 
 (*** hide ***)
+open System.Net
 let lookupName (id : int) = Some "Andrew"
 let lookupAge (id : int) = Some 32
 
@@ -38,6 +40,37 @@ let completeDetails = getCompleteDetails 1
 
 (**
 ***
+### Seq 
+*)
+let seqResult = seq {
+    yield 1
+    yield! seq {
+        yield 2
+        yield 3
+    }
+}
+(*** include-value: seqResult ***)
+(*** hide ***)
+let fetchAsync (url:string) : Async<string> =
+    let uri = new System.Uri(url)
+    let webClient = new WebClient()
+    webClient.AsyncDownloadString(uri)
+(**
+***
+### Async
+*)
+let readUriAsync(name, url:string) = async { 
+    try 
+        let! html = fetchAsync url
+        printfn 
+           "Read %d characters for %s" 
+           html.Length 
+           name
+    with
+        | ex -> printfn "%s" (ex.Message);
+}
+(**
+***
 ### Maybe 
 *)
 (*** include: getdetails ***)
@@ -59,6 +92,49 @@ let getCompleteDetails2 id =
 *)
 (*** include: maybe-builder ***)
 
+(**
+***
+### Async Seq Paging
+*)
+let getPage n : Async<seq<int>> = 
+  async {
+    if(n < 3) then
+      return seq {
+         for i in [n*10..n*10 + 9] do
+           yield i
+      }
+    else
+      return Seq.empty
+  }
+(**
+***
+### Async Seq Paging
+*)
+let getAllPagesSeq : seq<int> = 
+  let rec loop n = seq {
+      let results = 
+          getPage n 
+          |> Async.RunSynchronously
+      yield! results
+      if results <> Seq.empty then
+          yield! loop (n + 1)
+  }
+  loop 0
+(**
+***
+### Async Seq Paging
+*)
+let getAllPagesAsync : Async<seq<int>> = 
+  let rec loop n acc = async {
+      let! results = getPage n 
+      if results <> Seq.empty then
+          return! 
+              loop (n + 1) 
+                   (Seq.append acc results)
+      else
+          return acc
+  }
+  loop 0 Seq.empty
 (**
 ***
 ### AsyncSeq
@@ -144,20 +220,6 @@ type AsyncSeqBuilder with
           if enum <> null then enum.Dispose() ))
     member x.For (seq:AsyncSeq<'T>, action:'T -> AsyncSeq<'TResult>) = 
       collect action seq
-(**
-***
-### Async Seq Paging
-*)
-let getPage n : Async<seq<int>> = 
-  async {
-    if(n < 3) then
-      return seq {
-         for i in [n*10..n*10 + 9] do
-           yield i
-      }
-    else
-      return Seq.empty
-  }
 (**
 ***
 ### Async Seq Paging
@@ -298,7 +360,10 @@ let runStep
     | Pure result ->
         Complete (dataStore,result)
 
-(*** hide ***)
+(**
+---
+### DSL Interpreter
+*)
 let interpret
     (prog : FreeKeyValue<obj,'T>)
     (dataStore : Map<Key,(Version * string)>) 
@@ -352,3 +417,10 @@ let appendValue key value = keyValue {
 let appendResult = interpret (appendValue "key" "abcd") Map.empty
 
 (*** include-value: appendResult ***)
+(**
+***
+### References
+* F# Computation expression zoo http://research.microsoft.com/pubs/217375/computation-zoo.pdf
+* F# Language Specification 3.0 http://fsharp.org/specs/language-spec/3.0/FSharpSpec-3.0-final.pdf
+* Programming with F# asynchronous sequences http://tomasp.net/blog/async-sequences.aspx/
+*)
