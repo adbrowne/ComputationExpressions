@@ -2,7 +2,7 @@
 - title : Lets see what we can do! with F# Computation Expressions 
 - description: not sure where this goes
 - author : Andrew Browne
-- theme : Solarized
+- theme : solarized
 - transition : none
 
 ***
