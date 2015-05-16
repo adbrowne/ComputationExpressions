@@ -29,7 +29,7 @@ type MaybeBuilder() =
 let maybe = MaybeBuilder()
 
 (*** define: getdetails ***)
-let getCompleteDetails id = maybe {  
+let getCompleteDetails id = maybe {
   let! name = lookupName id
   let! age = lookupAge id
   return (name, age)
@@ -92,6 +92,243 @@ let getCompleteDetails2 id =
 *)
 (*** include: maybe-builder ***)
 
+(*** hide ***)
+type CExpr =
+  Yield of string
+  | YieldFrom of string
+  | Combine of CExpr * CExpr
+  | Delay of CExpr
+  | Bind of string * CExpr
+  | Zero
+  | Return of string
+  | ReturnFrom of string
+  | For of string * string
+  | Run of CExpr
+  | TryFinally of CExpr * string
+  | TryWith of CExpr * string
+  | Using of string * CExpr
+  | While of string * CExpr
+
+type CEDebugBuilder() =
+   member this.Yield(i) = Yield <| sprintf "%A" i
+   member this.YieldFrom(i) = YieldFrom <| sprintf "%A" i
+   member this.Combine(a,b) = Combine (a, b)
+   member this.Delay(f) =  Delay <| f()
+   member this.Bind(a,f) = Bind (sprintf "%A" a, f())
+   member this.Zero() = Zero
+   member this.Return(i) = Return <| sprintf "%A" i
+   member this.ReturnFrom(i) = ReturnFrom <| sprintf "%A" i
+   member this.For(s,f) = For (sprintf "%A" s, sprintf "Function %A" (f))
+   member this.TryFinally (f, e) = TryFinally (f,sprintf "error handler %A" e)
+   member this.TryWith (f, e : #System.Exception -> unit) = TryWith (f,sprintf "%A" e)
+   member this.Using (v,f) = Using (sprintf "%A" v, f())
+   member this.While (v,f) = While (sprintf "%A" (v()), f)
+
+let bar = new CEDebugBuilder()
+
+type CEDebugBuilderNoDelay() =
+   member this.Yield(i) = Yield <| sprintf "%A" i
+   member this.YieldFrom(i) = YieldFrom <| sprintf "%A" i
+   member this.Combine(a,b) = Combine (a, b)
+   member this.Bind(a,f) = Bind (sprintf "%A" a, f())
+   member this.Zero() = Zero
+   member this.Return(i) = Return <| sprintf "%A" i
+   member this.ReturnFrom(i) = ReturnFrom <| sprintf "%A" i
+   member this.For(s,f) = For (sprintf "%A" s, sprintf "Function %A" (f))
+   member this.TryFinally (f,e) = TryFinally (f,sprintf "%A" e)
+   member this.TryWith (f,e) = TryWith (f,sprintf "%A" e)
+   member this.Using (v,f) = Using (sprintf "%A" v, f())
+   member this.While (v,f) = While (sprintf "%A" (v()), f)
+
+let foo = new CEDebugBuilderNoDelay()
+
+(**
+***
+### Transformations: yield
+*)
+foo {
+    yield 1
+}
+(**
+*)
+foo.Yield(1)
+(**
+---
+### Transformations: yield!
+*)
+foo {
+    yield! 1
+}
+(**
+*)
+foo.YieldFrom(1)
+(**
+---
+### Transformations: return
+*)
+foo {
+    return 1
+}
+(**
+*)
+foo.Return(1)
+(**
+---
+### Transformations: return!
+*)
+foo {
+    return! 1
+}
+(**
+*)
+foo.ReturnFrom(1)
+(**
+---
+### Transformations: if else
+*)
+foo {
+    if false then
+       return 1
+    else
+       return 2
+}
+(**
+*)
+if true then
+   foo.Return(1)
+else
+   foo.Return(2)
+(**
+---
+### Transformations: if
+*)
+foo {
+    if true then
+       return 1
+}
+(**
+*)
+if false then
+   foo.Return(1)
+else
+   foo.Zero()
+(**
+---
+### Transformations: use
+*)
+foo {
+    use a = 1
+    return a
+}
+(**
+*)
+foo.Using(1, fun a -> foo.Return(a))
+(**
+---
+### Transformations: use!
+*)
+foo {
+    use! a = 1
+    return a
+}
+(**
+*)
+foo.Bind(
+  1, 
+  fun a -> 
+    foo.Using(a, 
+      fun a -> foo.Return(a)))
+(**
+---
+### Transformations: do!
+*)
+foo {
+    do! printf "1"
+    return 2
+}
+(**
+*)
+foo.Bind(
+  "1",
+  fun () -> foo.Return(2))
+(**
+---
+### Transformations: combine
+*)
+bar {
+    return "1"
+    return "2"
+}
+(**
+*)
+bar.Delay(fun () ->
+    bar.Combine(
+        bar.Return("1"), 
+        bar.Delay(fun () -> bar.Return("2"))))
+(**
+---
+### Transformations: For
+*)
+bar {
+    for x in [1..3] do
+        return x
+}
+(**
+*)
+bar.Delay(fun () ->
+    bar.For(
+        [1..3],
+        fun x -> bar.Return(x)))
+(**
+---
+### Transformations: While
+*)
+bar {
+    while true do
+       return "1"
+}
+(**
+*)
+bar.Delay(fun () ->
+    bar.While(
+        (fun () -> true),
+        bar.Delay(fun () -> bar.Return("1"))))
+(**
+---
+### Transformations: Try With
+*)
+bar {
+    try
+       return "value"
+    finally
+       printfn "error"
+}
+(**
+*)
+bar.Delay(fun () ->
+    bar.TryFinally(
+        bar.Delay(fun () -> bar.Return("value")), 
+        fun () -> printfn "error %A"))
+(**
+---
+### Transformations: Try With
+*)
+bar {
+    try
+       return 1 / 0
+    with | :? System.DivideByZeroException as e ->
+       printfn "error %A" e
+}
+(**
+*)
+bar.TryWith(
+    bar.Delay(
+        fun () -> bar.Return(1/0)), 
+        fun e -> 
+            match e with 
+            | :? System.DivideByZeroException as e -> 
+                printfn "error %A" e 
+            | exn -> reraise exn)
 (**
 ***
 ### Async Seq Paging
@@ -417,6 +654,23 @@ let appendValue key value = keyValue {
 let appendResult = interpret (appendValue "key" "abcd") Map.empty
 
 (*** include-value: appendResult ***)
+(**
+***
+- class : dsl-example
+
+### DSL example
+*)
+let appendValueWithRetry key value = 
+   let rec loop previousResult = keyValue {
+     match previousResult with
+     | WrongExpectedVersion -> 
+        return! (appendValue key value)
+     | _ ->
+        return previousResult
+   }
+
+   loop WrongExpectedVersion
+
 (**
 ***
 ### References
