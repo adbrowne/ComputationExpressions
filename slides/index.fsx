@@ -71,6 +71,14 @@ let readUriAsync(name, url:string) = async {
 }
 (**
 ***
+### Option
+*)
+type Option<'T> =
+  | Some of 'T
+  | None
+
+(**
+***
 ### Maybe 
 *)
 (*** include: getdetails ***)
@@ -395,6 +403,12 @@ let rec append (seq1: AsyncSeq<'T>) (seq2: AsyncSeq<'T>) : AsyncSeq<'T> =
             match v1 with 
             | Nil -> return! seq2
             | Cons (h,t) -> return Cons(h,append t seq2) }
+
+let rec toAsyncSeq xs = 
+    if xs = Seq.empty then
+        empty
+    else
+        async { return Cons(Seq.head xs, toAsyncSeq <| Seq.skip 1 xs) } 
 (**
 ***
 - class : much-code
@@ -403,7 +417,8 @@ let rec append (seq1: AsyncSeq<'T>) (seq2: AsyncSeq<'T>) : AsyncSeq<'T> =
 *)
 type AsyncSeqBuilder() =
     member x.Yield(v) = singleton v
-    member x.YieldFrom (s) = s
+    member x.YieldFrom (s : seq<'a>) = toAsyncSeq s
+    member x.YieldFrom (s : AsyncSeq<'a>) = s
     member x.Combine (seq1,seq2) = 
       append seq1 seq2
     member x.Bind (inp, body) = 
@@ -435,9 +450,9 @@ let rec internal tryFinally (input : AsyncSeq<'T>) compensation = asyncSeq {
         yield! tryFinally t compensation
     | Choice2Of2 e -> 
         compensation()
-        yield! raise e }
+        yield! (raise e : AsyncSeq<'T>) }
 
-let rec collect f (input : AsyncSeq<'T>) : AsyncSeq<'TResult> = asyncSeq {
+let rec collect (f : 'T -> AsyncSeq<'TResult>) (input : AsyncSeq<'T>) : AsyncSeq<'TResult> = asyncSeq {
     let! v = input
     match v with
     | Nil -> ()
@@ -463,8 +478,7 @@ type AsyncSeqBuilder with
 *)
 let rec resultLoop n = asyncSeq {
   let! results = getPage n
-  for r in results do
-    yield r
+  yield! results
   if results <> Seq.empty then
     yield! resultLoop (n + 1)
 }
