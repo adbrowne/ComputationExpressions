@@ -120,7 +120,7 @@ type CEDebugBuilder() =
    member this.ReturnFrom(i) = ReturnFrom <| sprintf "%A" i
    member this.For(s,f) = For (sprintf "%A" s, sprintf "Function %A" (f))
    member this.TryFinally (f, e) = TryFinally (f,sprintf "error handler %A" e)
-   member this.TryWith (f, e : #System.Exception -> unit) = TryWith (f,sprintf "%A" e)
+   member this.TryWith(expr : CExpr, handler: System.Exception -> CExpr) : CExpr = TryWith(expr, sprintf "%A" handler)
    member this.Using (v,f) = Using (sprintf "%A" v, f())
    member this.While (v,f) = While (sprintf "%A" (v()), f)
 
@@ -136,7 +136,7 @@ type CEDebugBuilderNoDelay() =
    member this.ReturnFrom(i) = ReturnFrom <| sprintf "%A" i
    member this.For(s,f) = For (sprintf "%A" s, sprintf "Function %A" (f))
    member this.TryFinally (f,e) = TryFinally (f,sprintf "%A" e)
-   member this.TryWith (f,e) = TryWith (f,sprintf "%A" e)
+   member this.TryWith(expr : CExpr, handler: System.Exception -> CExpr) : CExpr = TryWith(expr, sprintf "%A" handler)
    member this.Using (v,f) = Using (sprintf "%A" v, f())
    member this.While (v,f) = While (sprintf "%A" (v()), f)
 
@@ -187,7 +187,7 @@ foo.ReturnFrom(1)
 ### Transformations: if else
 *)
 foo {
-    if false then
+    if true then
        return 1
     else
        return 2
@@ -295,20 +295,20 @@ bar.Delay(fun () ->
         bar.Delay(fun () -> bar.Return("1"))))
 (**
 ---
-### Transformations: Try With
+### Transformations: Try Finally
 *)
 bar {
     try
        return "value"
     finally
-       printfn "error"
+       printfn "finally"
 }
 (**
 *)
 bar.Delay(fun () ->
     bar.TryFinally(
         bar.Delay(fun () -> bar.Return("value")), 
-        fun () -> printfn "error %A"))
+        fun () -> printfn "finally"))
 (**
 ---
 ### Transformations: Try With
@@ -317,21 +317,21 @@ bar {
     try
        return 1 / 0
     with | :? System.DivideByZeroException as e ->
-       printfn "error %A" e
+       return 0
 }
 (**
 *)
 bar.TryWith(
-    bar.Delay(
-        fun () -> bar.Return(1/0)), 
-        fun e -> 
-            match e with 
-            | :? System.DivideByZeroException as e -> 
-                printfn "error %A" e 
-            | exn -> reraise exn)
+    bar.Delay(fun () -> bar.Return(1/0)), 
+    (fun e -> 
+        match e with 
+        | :? System.DivideByZeroException as e -> 
+            bar.Return(0)
+        | exn -> reraise() ))
 (**
 ***
 ### Async Seq Paging
+http://tomasp.net/blog/async-sequences.aspx/
 *)
 let getPage n : Async<seq<int>> = 
   async {
@@ -596,7 +596,6 @@ let runStep
            Continue (dataStore, f WrongExpectedVersion)
     | Pure result ->
         Complete (dataStore,result)
-
 (**
 ---
 ### DSL Interpreter
@@ -670,8 +669,66 @@ let appendValueWithRetry key value =
    }
 
    loop WrongExpectedVersion
-
+(*** hide ***)
+type IRealDataStore = 
+    abstract member Read : Key -> Async<(Version * string) option>
+    abstract member Write : Key -> Version -> string -> Async<WriteResult>
 (**
+***
+- class : dsl-interpreter
+
+### Real DSL Interpreter
+*)
+let rec realInterpreter 
+    (prog : FreeKeyValue<obj,'T>)
+    (realDataStore : IRealDataStore) 
+    : Async<'T> =
+    match prog with
+    | FreeKeyValue (ReadValue (key, f)) -> async {
+        let! value = realDataStore.Read key
+        return! realInterpreter (f value) realDataStore }
+    | FreeKeyValue (WriteValue (key, version, value, f)) -> async {
+        let! result = realDataStore.Write key version value
+        return! realInterpreter (f result) realDataStore }
+    | Pure result ->
+        async { return result }
+(**
+***
+- class : dsl-interpreter
+
+### DSL Interpreter Interleaving
+*)
+let interpret2
+    (prog1 : FreeKeyValue<obj,'T>)
+    (prog2 : FreeKeyValue<obj,'T>)
+    (dataStore : Map<Key,(Version * string)>) 
+    : (Map<Key,(Version * string)> * 'T * 'T) =
+    let runOne pRun pOther ds =
+       match runStep pRun ds with
+       | Continue (ds',pRun') -> (pOther, pRun', ds')
+       | Complete(ds', a) -> (pOther, Pure a, ds')
+        
+    let rec loop 
+       (p1, p2, ds) =
+       match (p1,p2) with
+       | (Pure r1, Pure r2) -> (ds,r1, r2)
+       | (_, Pure _) -> loop <| runOne p1 p2 ds
+       | _ -> loop <| runOne p2 p1 ds
+
+    loop (prog1, prog2, dataStore)
+
+let appendResult2 = 
+   interpret2 (appendValue "key" "abcd") (appendValue "key" "abcd") Map.empty
+
+(*** include-value: appendResult2 ***)
+(**
+***
+### More computation expressions
+* Choice
+* Software Transactional Memory 
+* Logging
+* Parsing
+
 ***
 ### References
 * F# Computation expression zoo http://research.microsoft.com/pubs/217375/computation-zoo.pdf
