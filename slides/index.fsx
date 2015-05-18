@@ -72,12 +72,12 @@ let readUriAsync(name, url:string) = async {
 (**
 ***
 ### Option
-*)
-type Option<'T> =
-  | Some of 'T
-  | None
+    [lang=fsharp]
+    module MyOption = 
+    type Option<'T> =
+    | Some of 'T
+    | None
 
-(**
 ***
 ### Maybe 
 *)
@@ -336,22 +336,18 @@ bar.TryWith(
         | :? System.DivideByZeroException as e -> 
             bar.Return(0)
         | exn -> reraise() ))
+
+(*** hide ***)
+let getPage (n : int) : Async<seq<int>> 
+    = raise (new System.NotImplementedException())
 (**
 ***
 ### Async Seq Paging
 http://tomasp.net/blog/async-sequences.aspx/
-*)
-let getPage n : Async<seq<int>> = 
-  async {
-    if(n < 3) then
-      return seq {
-         for i in [n*10..n*10 + 9] do
-           yield i
-      }
-    else
-      return Seq.empty
-  }
-(**
+
+    [lang=fsharp]
+    let getPage (n : int) : Async<seq<int>>
+
 ***
 ### Async Seq Paging
 *)
@@ -515,6 +511,11 @@ type Version = int
 ***
 ### A Simple DSL
 *)
+(*** include: appendvalue-example ***)
+(**
+***
+### A Simple DSL
+*)
 type KeyValueLanguage<'N> =
     | ReadValue of 
         Key * ((Version * string) option -> 'N)
@@ -651,6 +652,7 @@ let keyValue = new KeyValueBuilder()
 
 ### DSL example
 *)
+(*** define: appendvalue-example ***)
 let appendValue key value = keyValue {
      let! current = readValue key
      match current with
@@ -664,6 +666,7 @@ let appendValue key value = keyValue {
          return result
    }
 
+(*** include: appendvalue-example ***)
 let appendResult = interpret (appendValue "key" "abcd") Map.empty
 
 (*** include-value: appendResult ***)
