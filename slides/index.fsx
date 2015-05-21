@@ -527,7 +527,7 @@ and
        KeyValueLanguage<FreeKeyValue<'F,'R>>
     | Pure of 'R
 
-(*** hide ***)
+(*** define: keyValue-bind ***)
 let fmap f streamWorker = 
     match streamWorker with
     | ReadValue (key, streamRead) -> 
@@ -535,13 +535,12 @@ let fmap f streamWorker =
     | WriteValue (key, expectedVersion, value, next) -> 
         WriteValue (key, expectedVersion, value, (next >> f))
 
-let liftF command = FreeKeyValue (fmap Pure command)
-
 let rec bind' f v =
     match v with
     | FreeKeyValue x -> FreeKeyValue (fmap (bind' f) x)
     | Pure r -> f r
 
+(*** hide ***)
 // Return the final value wrapped in the Free type.
 let result value = Pure value
 
@@ -646,6 +645,12 @@ type KeyValueBuilder() =
 
 let keyValue = new KeyValueBuilder()
 
+(**
+---
+
+### KeyValue bind
+*)
+(*** include: keyValue-bind ***)
 (**
 ***
 - class : dsl-example
